@@ -14,7 +14,7 @@ GlorpyBassAudioProcessorEditor::GlorpyBassAudioProcessorEditor(GlorpyBassAudioPr
     titleLabel.setFont(juce::FontOptions(34.0f, juce::Font::bold));
     addAndMakeVisible(titleLabel);
 
-    subtitleLabel.setText("Rubbery wet mono bass for Ableton. Glorp controls the filter slap and goo.", juce::dontSendNotification);
+    subtitleLabel.setText("Live-ready mono bass. Mod wheel adds wobble, pitch bend slides the note, and the output is soft-limited for safer performance.", juce::dontSendNotification);
     subtitleLabel.setJustificationType(juce::Justification::centredLeft);
     subtitleLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.75f));
     addAndMakeVisible(subtitleLabel);
@@ -28,7 +28,11 @@ GlorpyBassAudioProcessorEditor::GlorpyBassAudioProcessorEditor(GlorpyBassAudioPr
     keyboard.setColour(juce::MidiKeyboardComponent::textLabelColourId, juce::Colours::black.withAlpha(0.7f));
     addAndMakeVisible(keyboard);
 
-    const std::array<std::pair<const char*, const char*>, 11> controls = {{
+    const std::array<std::pair<const char*, const char*>, 14> controls = {{
+        { "attack", "Attack" },
+        { "release", "Release" },
+        { "velocity", "Velocity" },
+        { "bend", "Bend" },
         { "mix", "Wave" },
         { "sub", "Sub" },
         { "cutoff", "Cutoff" },
@@ -38,7 +42,6 @@ GlorpyBassAudioProcessorEditor::GlorpyBassAudioProcessorEditor(GlorpyBassAudioPr
         { "wobbleDepth", "Depth" },
         { "glide", "Glide" },
         { "drive", "Drive" },
-        { "decay", "Decay" },
         { "level", "Level" }
     }};
 
@@ -88,7 +91,7 @@ void GlorpyBassAudioProcessorEditor::resized()
     auto knobsArea = bounds.reduced(0, 12);
     const int columns = 4;
     const int knobWidth = knobsArea.getWidth() / columns;
-    const int rows = 3;
+    const int rows = 4;
     const int knobHeight = knobsArea.getHeight() / rows;
 
     for (int i = 0; i < knobs.size(); ++i)

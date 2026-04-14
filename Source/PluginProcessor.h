@@ -51,6 +51,8 @@ private:
         void reset();
         void noteOn(int midiNote, float velocity);
         void noteOff(int midiNote);
+        void setPitchBend(int value);
+        void setModWheel(float value);
         float renderSample(const juce::AudioProcessorValueTreeState& state);
 
     private:
@@ -67,6 +69,8 @@ private:
         double sampleRate = 44100.0;
         float currentFrequency = 55.0f;
         float targetFrequency = 55.0f;
+        float pitchBendSemitones = 0.0f;
+        float modWheel = 0.0f;
         float currentVelocity = 0.0f;
         float ampEnvelope = 0.0f;
         float filterEnvelope = 0.0f;

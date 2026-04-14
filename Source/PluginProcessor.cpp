@@ -20,6 +20,12 @@ juce::String formatMs(float value)
 {
     return juce::String(juce::roundToInt(value)) + " ms";
 }
+
+juce::String formatSemitones(float value)
+{
+    const bool wholeStep = std::abs(value - std::round(value)) < 0.001f;
+    return juce::String(value, wholeStep ? 0 : 1) + " st";
+}
 }
 
 GlorpyBassAudioProcessor::GlorpyBassAudioProcessor()
@@ -63,6 +69,10 @@ void GlorpyBassAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
             bassEngine.noteOn(message.getNoteNumber(), message.getFloatVelocity());
         else if (message.isNoteOff())
             bassEngine.noteOff(message.getNoteNumber());
+        else if (message.isPitchWheel())
+            bassEngine.setPitchBend(message.getPitchWheelValue());
+        else if (message.isControllerOfType(1))
+            bassEngine.setModWheel(static_cast<float>(message.getControllerValue()) / 127.0f);
         else if (message.isAllNotesOff() || message.isAllSoundOff())
             bassEngine.reset();
     }
@@ -198,7 +208,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlorpyBassAudioProcessor::cr
     parameters.push_back(makeFloat("wobbleDepth", "Wobble Depth", juce::NormalisableRange<float>(0.0f, 1.0f), 0.35f, formatPercent));
     parameters.push_back(makeFloat("glide", "Glide", juce::NormalisableRange<float>(0.0f, 220.0f), 85.0f, formatMs));
     parameters.push_back(makeFloat("drive", "Drive", juce::NormalisableRange<float>(1.0f, 8.0f), 3.4f));
-    parameters.push_back(makeFloat("decay", "Decay", juce::NormalisableRange<float>(40.0f, 1200.0f, 1.0f, 0.45f), 280.0f, formatMs));
+    parameters.push_back(makeFloat("attack", "Attack", juce::NormalisableRange<float>(0.0f, 200.0f, 1.0f, 0.5f), 8.0f, formatMs));
+    parameters.push_back(makeFloat("release", "Release", juce::NormalisableRange<float>(30.0f, 2000.0f, 1.0f, 0.45f), 320.0f, formatMs));
+    parameters.push_back(makeFloat("velocity", "Velocity", juce::NormalisableRange<float>(0.0f, 1.0f), 0.7f, formatPercent));
+    parameters.push_back(makeFloat("bend", "Bend Range", juce::NormalisableRange<float>(1.0f, 12.0f, 1.0f), 2.0f, formatSemitones));
     parameters.push_back(makeFloat("level", "Level", juce::NormalisableRange<float>(0.0f, 1.0f), 0.8f, formatPercent));
 
     return { parameters.begin(), parameters.end() };
@@ -225,6 +238,8 @@ void GlorpyBassAudioProcessor::MonoBassEngine::reset()
     filter.reset();
     heldNotes.clear();
     currentFrequency = targetFrequency = 55.0f;
+    pitchBendSemitones = 0.0f;
+    modWheel = 0.0f;
     currentVelocity = 0.0f;
     ampEnvelope = 0.0f;
     filterEnvelope = 0.0f;
@@ -261,6 +276,17 @@ void GlorpyBassAudioProcessor::MonoBassEngine::noteOff(int midiNote)
     gate = true;
 }
 
+void GlorpyBassAudioProcessor::MonoBassEngine::setPitchBend(int value)
+{
+    constexpr float center = 8192.0f;
+    pitchBendSemitones = (static_cast<float>(value) - center) / center;
+}
+
+void GlorpyBassAudioProcessor::MonoBassEngine::setModWheel(float value)
+{
+    modWheel = juce::jlimit(0.0f, 1.0f, value);
+}
+
 float GlorpyBassAudioProcessor::MonoBassEngine::renderSample(const juce::AudioProcessorValueTreeState& state)
 {
     auto getParam = [&state](const char* id) {
@@ -276,26 +302,32 @@ float GlorpyBassAudioProcessor::MonoBassEngine::renderSample(const juce::AudioPr
     const float wobbleDepth = getParam("wobbleDepth");
     const float glideMs = getParam("glide");
     const float drive = getParam("drive");
-    const float decayMs = getParam("decay");
+    const float attackMs = getParam("attack");
+    const float releaseMs = getParam("release");
+    const float velocityTracking = getParam("velocity");
+    const float bendRange = getParam("bend");
     const float level = getParam("level");
 
     const float glideCoeff = glideMs <= 1.0f ? 1.0f : 1.0f - std::exp(-1.0f / (0.001f * glideMs * static_cast<float>(sampleRate)));
     currentFrequency += (targetFrequency - currentFrequency) * glideCoeff;
 
-    oscA.setFrequency(currentFrequency);
-    oscB.setFrequency(currentFrequency * 1.003f);
-    subOsc.setFrequency(currentFrequency * 0.5f);
+    const float bentFrequency = currentFrequency * std::pow(2.0f, (pitchBendSemitones * bendRange) / 12.0f);
+
+    oscA.setFrequency(bentFrequency);
+    oscB.setFrequency(bentFrequency * 1.003f);
+    subOsc.setFrequency(bentFrequency * 0.5f);
     wobbleLfo.setFrequency(wobbleRate);
 
-    const float attackStep = 1.0f / juce::jmax(1.0, sampleRate * 0.003);
-    const float releaseStep = 1.0f / juce::jmax(1.0, sampleRate * (0.001 * decayMs));
+    const float attackStep = 1.0f / juce::jmax(1.0, sampleRate * (0.001 * juce::jmax(1.0f, attackMs)));
+    const float releaseStep = 1.0f / juce::jmax(1.0, sampleRate * (0.001 * releaseMs));
 
     ampEnvelope = nextEnvelopeSample(attackStep, releaseStep);
     filterEnvelope = gate ? juce::jmin(1.0f, filterEnvelope + (attackStep * 1.7f))
                           : juce::jmax(0.0f, filterEnvelope - (releaseStep * 0.75f));
 
     const float wobble = (wobbleLfo.processSample(0.0f) * 0.5f) + 0.5f;
-    const float movingCutoff = cutoff + (glorp * 2000.0f * filterEnvelope) + (wobbleDepth * 900.0f * wobble);
+    const float performanceWobble = juce::jlimit(0.0f, 1.25f, wobbleDepth + (modWheel * 0.75f));
+    const float movingCutoff = cutoff + (glorp * 2000.0f * filterEnvelope) + (performanceWobble * 900.0f * wobble);
     filter.setCutoffFrequency(juce::jlimit(50.0f, 8000.0f, movingCutoff));
     filter.setResonance(resonance);
 
@@ -303,8 +335,10 @@ float GlorpyBassAudioProcessor::MonoBassEngine::renderSample(const juce::AudioPr
     const float swollen = base + sub * 0.65f * subOsc.processSample(0.0f);
     const float filtered = filter.processSample(0, swollen);
     const float wet = shapeWetness(filtered * drive, glorp);
+    const float velocityGain = (1.0f - velocityTracking) + (currentVelocity * velocityTracking);
+    const float voiced = wet * ampEnvelope * velocityGain * level;
 
-    return wet * ampEnvelope * currentVelocity * level;
+    return std::tanh(voiced * 1.25f) * 0.92f;
 }
 
 float GlorpyBassAudioProcessor::MonoBassEngine::nextEnvelopeSample(float attackStep, float releaseStep)
