@@ -31,6 +31,7 @@ juce::String formatSemitones(float value)
 GlorpyBassAudioProcessor::GlorpyBassAudioProcessor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true))
     , apvts(*this, nullptr, "Parameters", createParameterLayout())
+    , defaultState(apvts.copyState())
 {
 }
 
@@ -139,11 +140,12 @@ int GlorpyBassAudioProcessor::getCurrentProgram()
 
 void GlorpyBassAudioProcessor::setCurrentProgram(int)
 {
+    resetToDefaultState();
 }
 
 const juce::String GlorpyBassAudioProcessor::getProgramName(int)
 {
-    return {};
+    return "Default";
 }
 
 void GlorpyBassAudioProcessor::changeProgramName(int, const juce::String&)
@@ -161,9 +163,13 @@ void GlorpyBassAudioProcessor::setStateInformation(const void* data, int sizeInB
 {
     std::unique_ptr<juce::XmlElement> xml(getXmlFromBinary(data, sizeInBytes));
 
-    if (xml != nullptr)
-        if (xml->hasTagName(apvts.state.getType()))
-            apvts.replaceState(juce::ValueTree::fromXml(*xml));
+    if (xml != nullptr && xml->hasTagName(apvts.state.getType()))
+    {
+        apvts.replaceState(juce::ValueTree::fromXml(*xml));
+        return;
+    }
+
+    resetToDefaultState();
 }
 
 juce::AudioProcessorValueTreeState& GlorpyBassAudioProcessor::getValueTreeState()
@@ -174,6 +180,13 @@ juce::AudioProcessorValueTreeState& GlorpyBassAudioProcessor::getValueTreeState(
 juce::MidiKeyboardState& GlorpyBassAudioProcessor::getKeyboardState()
 {
     return keyboardState;
+}
+
+void GlorpyBassAudioProcessor::resetToDefaultState()
+{
+    apvts.replaceState(defaultState.createCopy());
+    keyboardState.reset();
+    bassEngine.reset();
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout GlorpyBassAudioProcessor::createParameterLayout()

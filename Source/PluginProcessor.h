@@ -38,6 +38,8 @@ public:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
 private:
+    void resetToDefaultState();
+
     struct ActiveNote
     {
         int midiNote = -1;
@@ -78,6 +80,7 @@ private:
     };
 
     juce::AudioProcessorValueTreeState apvts;
+    juce::ValueTree defaultState;
     juce::MidiKeyboardState keyboardState;
     MonoBassEngine bassEngine;
 
